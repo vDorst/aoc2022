@@ -8,16 +8,21 @@ mod pos {
 }
 
 const FIELD_X: usize = 500 * 2;
-const FIELD_Y: usize = 170;
+const FIELD_Y: usize = 168;
 struct Sim {
     buf: [u8; FIELD_X * FIELD_Y],
+    tail: Vec<u32>,
 }
 
 impl Sim {
     fn new() -> Self {
-        Self {
+        let mut ret = Self {
             buf: [pos::EMPTY; FIELD_X * FIELD_Y],
-        }
+            tail: Vec::with_capacity(1024),
+        };
+
+        ret.tail.push(Vector(500, 0).to_addr() as u32);
+        ret
     }
 
     fn draw(&mut self) {
@@ -25,8 +30,8 @@ impl Sim {
 
         for (y, line) in self.buf.chunks(FIELD_X).enumerate() {
             print!("{y} ");
-            print_input(&line[500 - 40..500 + 40]);
-            if y == 200 {
+            print_input(&line[500 - 15..500 + 25]);
+            if y == 40 {
                 break;
             }
         }
@@ -54,17 +59,27 @@ impl Sim {
     }
 
     fn sim(&mut self) -> bool {
-        let mut addr = Vector(500, 0).to_addr();
+        let mut addr = loop {
+            let Some(addr) = self.tail.pop() else {
+                println!("Missing");
+                return false;
+            };
+            let addr = usize::try_from(addr).unwrap();
+            let start = self.buf[addr];
+            if start != pos::EMPTY {
+                continue;
+            };
 
-        let start = self.buf[addr];
-        if start != pos::EMPTY { return false };
-
-        let mut last_valid;
+            break addr;
+        };
 
         loop {
-            last_valid = addr;
+            // last empty
+            self.tail.push(addr as u32);
+
             addr += FIELD_X;
             if addr >= self.buf.len() {
+                println!("outside buff {addr} x:{}", addr / FIELD_X);
                 return false;
             }
             if self.buf[addr] == pos::EMPTY {
@@ -78,21 +93,20 @@ impl Sim {
             if self.buf[addr] == pos::EMPTY {
                 continue;
             }
-
             break;
         }
+        let last_valid = self.tail.pop().unwrap() as usize;
         self.buf[last_valid] = pos::SAND;
 
         true
     }
 }
 
-
 struct Timer(Instant);
 
 impl Timer {
     fn new() -> Self {
-        Self (std::time::Instant::now())
+        Self(std::time::Instant::now())
     }
     fn update(&mut self, data: &str) {
         let elapsed = self.0.elapsed();
@@ -102,7 +116,7 @@ impl Timer {
 }
 
 fn main() {
-    let mut total =Timer::new();
+    let mut total = Timer::new();
     let mut timer = Timer::new();
 
     let mut f = std::fs::File::open("input/input.txt").unwrap();
@@ -144,6 +158,9 @@ fn main() {
 
     // Part2
     println!("max: {max}");
+
+    sim.tail.clear();
+    sim.tail.push(Vector(500, 0).to_addr() as u32);
 
     loop {
         if !sim.sim() {
