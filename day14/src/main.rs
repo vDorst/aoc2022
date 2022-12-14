@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read, time::Instant};
 
 mod pos {
     pub const EMPTY: u8 = b'.';
@@ -87,11 +87,30 @@ impl Sim {
     }
 }
 
+
+struct Timer(Instant);
+
+impl Timer {
+    fn new() -> Self {
+        Self (std::time::Instant::now())
+    }
+    fn update(&mut self, data: &str) {
+        let elapsed = self.0.elapsed();
+        println!("{data}: {} uS", elapsed.as_micros());
+        self.0 = std::time::Instant::now();
+    }
+}
+
 fn main() {
+    let mut total =Timer::new();
+    let mut timer = Timer::new();
+
     let mut f = std::fs::File::open("input/input.txt").unwrap();
     let mut input = Vec::<u8>::with_capacity(1_000_000);
 
     f.read_to_end(&mut input).unwrap();
+
+    timer.update("Load data");
 
     let points = input.split(|v| *v == b'\n');
 
@@ -105,7 +124,7 @@ fn main() {
         sim.draw_vectors(vecs);
     }
 
-    sim.draw();
+    timer.update("Setup board");
 
     let mut cnt = 0;
     loop {
@@ -115,7 +134,7 @@ fn main() {
         cnt += 1;
     }
 
-    sim.draw();
+    timer.update("Part1");
 
     println!("num: {cnt}");
 
@@ -131,17 +150,15 @@ fn main() {
             break;
         }
         cnt += 1;
-        if cnt % 100 == 0 {
-            println!("cnt: {cnt}");
-            if cnt > (200 * 200) {
-                break;
-            };
-        };
     }
 
-    sim.draw();
+    timer.update("Part2");
+
+    // sim.draw();
 
     println!("Part2: num: {cnt}");
+
+    total.update("Total");
 }
 
 #[derive(Debug, PartialEq, Eq)]
