@@ -1,213 +1,216 @@
 use std::io::Read;
 
-fn part1(input: &[u8]) -> String {
-    let mut crates = Containers {
-        state: Vec::with_capacity(9),
-    };
+const DISK_SPACE: u32 = 70_000_000;
+const DISK_SPACE_NEEDED: u32 = 30_000_000;
 
-    crates.state.push(b"BZT".to_vec());
-    crates.state.push(b"VHTDN".to_vec());
-    crates.state.push(b"BFMD".to_vec());
-    crates.state.push(b"TJGWVQM".to_vec());
-    crates.state.push(b"WDGPVFQM".to_vec());
-    crates.state.push(b"VZQGHFS".to_vec());
-    crates.state.push(b"ZSNRLTCW".to_vec());
-    crates.state.push(b"ZHWDJNRM".to_vec());
-    crates.state.push(b"MQLFDS".to_vec());
+fn part1(input: &str) -> u32 {
+    let tree = build_tree(input);
 
-    let line = input.split(|v| *v == b'\n');
-    for data in line {
-        println!("line: {}", core::str::from_utf8(data).unwrap());
-        crates.job(Instruction::from(data))
-    }
-
-    crates.finish()
+    let sum: u32 = tree
+        .iter()
+        .filter(|e| e.item == Item::Dir && e.size <= 100_000)
+        .map(|e| e.size)
+        .sum();
+    sum
 }
 
-fn part2(input: &[u8]) -> String {
-    let mut crates = Containers {
-        state: Vec::with_capacity(9),
-    };
+fn part2(input: &str) -> u32 {
+    let tree = build_tree(input);
 
-    crates.state.push(b"BZT".to_vec());
-    crates.state.push(b"VHTDN".to_vec());
-    crates.state.push(b"BFMD".to_vec());
-    crates.state.push(b"TJGWVQM".to_vec());
-    crates.state.push(b"WDGPVFQM".to_vec());
-    crates.state.push(b"VZQGHFS".to_vec());
-    crates.state.push(b"ZSNRLTCW".to_vec());
-    crates.state.push(b"ZHWDJNRM".to_vec());
-    crates.state.push(b"MQLFDS".to_vec());
+    let disk_usage = tree[0].size;
+  
+    let current_free = DISK_SPACE - disk_usage;
 
-    let line = input.split(|v| *v == b'\n');
-    for data in line {
-        println!("line: {}", core::str::from_utf8(data).unwrap());
-        crates.job_mutli(Instruction::from(data))
-    }
+    let size_to_delete = DISK_SPACE_NEEDED - current_free;
 
-    crates.finish()
+    let dir_size: u32 = tree
+        .iter()
+        .filter(|e| e.item == Item::Dir && e.size >= size_to_delete)
+        .map(|e| e.size)
+        .min().unwrap();
+
+    dir_size
 }
 
 fn main() {
     let mut f = std::fs::File::open("input/input.txt").unwrap();
-    let mut input = Vec::<u8>::with_capacity(1_000_000);
-    f.read_to_end(&mut input).unwrap();
+    let mut input = String::with_capacity(1_000_000);
+    f.read_to_string(&mut input).unwrap();
 
-    println!("score: {}", part1(&input));
-    println!("score: {}", part2(&input));
+    println!("Part1: sum: {}", part1(&input));
+    println!("Part2: sum: {}", part2(&input));
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Instruction {
-    n: u8,
-    from: u8,
-    to: u8,
+enum Item {
+    Dir,
+    File,
 }
 
-impl Instruction {
-    fn from(input: &[u8]) -> Self {
-        let mut line = input.split(|v| *v == b' ');
-
-        let n = slice_to_number(line.nth(1).unwrap());
-        let from = slice_to_number(line.nth(1).unwrap());
-        let to = slice_to_number(line.nth(1).unwrap());
-
-        Self { n, from, to }
-    }
-}
-
-fn slice_to_number(input: &[u8]) -> u8 {
-    input.iter().map(|v| *v - b'0').fold(0, |sum, x| {
-        sum.checked_mul(10).unwrap().checked_add(x).unwrap()
-    })
-}
+type ParentID = u16;
 
 #[derive(Debug, PartialEq, Eq)]
-struct Containers {
-    state: Vec<Vec<u8>>,
+struct Entry<'a> {
+    name: &'a str,
+    parent: Option<ParentID>,
+    item: Item,
+    size: u32,
+    id: ParentID,
 }
 
-impl Containers {
-    fn job(&mut self, ins: Instruction) {
-        for _ in 0..ins.n {
-            let from = usize::from(ins.from) - 1;
-            let krat = self.state[from].pop().unwrap();
-            let to = usize::from(ins.to) - 1;
-            self.state[to].push(krat);
+fn build_tree(input: &str) -> Vec<Entry> {
+    let mut entries = Vec::<Entry>::with_capacity(1000);
+
+    entries.push(Entry {
+        name: "/",
+        parent: None,
+        item: Item::Dir,
+        size: 0,
+        id: 0,
+    });
+
+    let mut path = Vec::<ParentID>::with_capacity(10);
+    path.push(0);
+
+    for line in input.split_terminator('\n') {
+        let mut b = line.split_terminator(' ');
+
+        let start = b.next().unwrap();
+
+        match start {
+            "$" => match b.next().unwrap() {
+                "ls" => (),
+                "cd" => match b.next().unwrap() {
+                    "/" => {
+                        path.clear();
+                        path.push(0);
+                    }
+                    ".." => {
+                        let current_id = path.pop().unwrap() as usize;
+                        let parent_id = path.last().unwrap().to_owned() as usize;
+                        let size = entries[current_id].size;
+
+                        entries[parent_id].size += size;
+                    }
+                    name => {
+                        let parent_id = path.last().cloned();
+                        let parent = entries
+                            .iter()
+                            .find(|e| e.parent == parent_id && e.name == name)
+                            .map(|x| x.id)
+                            .unwrap();
+                        path.push(parent);
+                    }
+                },
+                _ => (),
+            },
+            "dir" => {
+                let parent = path.last().cloned();
+                entries.push(Entry {
+                    name: b.next().unwrap(),
+                    parent,
+                    item: Item::Dir,
+                    size: 0,
+                    id: entries.len() as ParentID,
+                })
+            }
+            size => {
+                let parent = path.last().cloned();
+                let size = size.parse().unwrap();
+
+                entries[parent.unwrap() as usize].size += size;
+                entries.push(Entry {
+                    name: b.next().unwrap(),
+                    parent,
+                    item: Item::File,
+                    size,
+                    id: entries.len() as ParentID,
+                })
+            }
         }
     }
 
-    fn job_mutli(&mut self, ins: Instruction) {
-        let from = usize::from(ins.from) - 1;
-        let start = self.state[from].len() - usize::from(ins.n);
-        let krat = self.state[from].drain(start..).as_slice().to_vec();
-        let to = usize::from(ins.to) - 1;
-        self.state[to].extend_from_slice(&krat);
-    }
-
-    fn finish(&self) -> String {
-        let mut letters = Vec::with_capacity(self.state.len());
-        for stack in &self.state {
-            letters.push(*stack.last().unwrap());
+    loop {
+        if path.len() < 2 {
+            break;
         }
+        let current_id = path.pop().unwrap() as usize;
+        let parent_id = path.last().unwrap().to_owned() as usize;
+        let size = entries[current_id].size;
 
-        String::from_utf8(letters).unwrap()
+        entries[parent_id].size += size;
     }
+    entries
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Containers, Instruction};
+    use super::{build_tree, Item, DISK_SPACE, DISK_SPACE_NEEDED};
 
-    const INPUT: &[u8] = b"move 1 from 2 to 1
-move 3 from 1 to 3
-move 2 from 2 to 1
-move 1 from 1 to 2";
-
-    #[test]
-    fn test_slice_to_number() {
-        let mut line = INPUT.split(|v| *v == b'\n');
-
-        let data = line.next().unwrap();
-        assert_eq!(
-            Instruction::from(data),
-            Instruction {
-                n: 1,
-                from: 2,
-                to: 1
-            }
-        );
-        let data = line.next().unwrap();
-        assert_eq!(
-            Instruction::from(data),
-            Instruction {
-                n: 3,
-                from: 1,
-                to: 3
-            }
-        );
-        let data = line.next().unwrap();
-        assert_eq!(
-            Instruction::from(data),
-            Instruction {
-                n: 2,
-                from: 2,
-                to: 1
-            }
-        );
-        let data = line.next().unwrap();
-        assert_eq!(
-            Instruction::from(data),
-            Instruction {
-                n: 1,
-                from: 1,
-                to: 2
-            }
-        );
-        assert!(line.next().is_none());
-    }
+    const INPUT: &str = "$ cd /
+$ ls
+dir a
+14848514 b.txt
+8504156 c.dat
+dir d
+$ cd a
+$ ls
+dir e
+29116 f
+2557 g
+62596 h.lst
+$ cd e
+$ ls
+584 i
+$ cd ..
+$ cd ..
+$ cd d
+$ ls
+4060174 j
+8033020 d.log
+5626152 d.ext
+7214296 k";
 
     #[test]
     fn test_example() {
-        let line = INPUT.split(|v| *v == b'\n');
+        let tree = build_tree(INPUT);
 
-        let mut crates = Containers {
-            state: vec![vec![b'Z', b'N'], vec![b'M', b'C', b'D'], vec![b'P']],
-        };
+        assert_eq!(tree.len(), 14);
+        assert_eq!(tree[0].size, 48381165);
 
-        for data in line {
-            crates.job(Instruction::from(data))
-        }
-
-        println!("{crates:?}");
-
-        assert_eq!(
-            crates,
-            Containers {
-                state: vec![vec![b'C'], vec![b'M'], vec![b'P', b'D', b'N', b'Z']]
-            }
-        );
-        assert_eq!(crates.finish(), "CMZ".to_owned());
+        let sum: u32 = tree
+            .iter()
+            .filter(|e| e.item == Item::Dir && e.size <= 100_000)
+            .map(|e| e.size)
+            .sum();
+        assert_eq!(sum, 95437);
     }
+
 
     #[test]
     fn test_example_part2() {
-        let mut crates = Containers {
-            state: vec![vec![b'Z', b'N'], vec![b'M', b'C', b'D'], vec![b'P']],
-        };
+        let tree = build_tree(INPUT);
 
-        for data in INPUT.split(|v| *v == b'\n') {
-            crates.job_mutli(Instruction::from(data))
-        }
+        assert_eq!(tree.len(), 14);
 
-        println!("{crates:?}");
+        let disk_usage = tree[0].size;
+        assert_eq!(disk_usage, 48_381_165);
 
-        assert_eq!(
-            crates,
-            Containers {
-                state: vec![b"M".to_vec(), vec![b'C'], b"PZND".to_vec()]
-            }
-        );
-        assert_eq!(crates.finish(), "MCD".to_owned());
+        let current_free = DISK_SPACE - disk_usage;
+
+        assert_eq!(current_free, 21_618_835);
+
+        let size_to_delete = DISK_SPACE_NEEDED - current_free;
+
+        assert_eq!(size_to_delete, 8_381_165);
+
+        let dir_size: u32 = tree
+            .iter()
+            .filter(|e| e.item == Item::Dir && e.size >= size_to_delete)
+            .map(|e| e.size)
+            .min().unwrap();
+
+        assert_eq!(dir_size, 24_933_642);
+
     }
 }
