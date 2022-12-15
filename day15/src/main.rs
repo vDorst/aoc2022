@@ -8,7 +8,7 @@ type Upos = u32;
 
 const Y_ROW: Ipos = 2_000_000;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 
 struct Point(Ipos, Ipos);
 
@@ -40,7 +40,7 @@ impl Point {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 
 struct Info {
     sensor: Point,
@@ -72,6 +72,7 @@ fn main() {
     let input = include_bytes!("../input/input.txt");
 
     let data = decode(input);
+    let data2 = data.clone();
 
     let mut beacon_not_at = Vec::<Ipos>::with_capacity(1000);
 
@@ -98,6 +99,42 @@ fn main() {
     }
 
     println!("y={Y_ROW}: num: {}", beacon_not_at.len());
+
+    println!("Start searching");
+
+    const N_MAX: i32 = 4_000_000;
+    'lus: for y in 0..N_MAX {
+        let mut x: i32 = -1;
+        'x: loop {
+            x += 1;
+            if x > N_MAX {
+                continue 'lus;
+            }
+
+            for point in data2.iter() {
+                let sensor = &point.sensor;
+                let dis = point.distance;
+
+                if let Some(r) = sensor.in_range(dis, y) {                    
+                    let xs = sensor.0;
+                    // Not in range
+                    if x.abs_diff(xs) > r  {
+                        // println!("ND: x{x} y{y} n{n}");
+                        continue;
+                    }
+                    
+                    x = x.max(xs - 1 + r as i32);
+                    // println!("IR: x{x} y{y} n{n}: xs{xs} r{r}");
+                    continue 'x;
+                }
+
+                //println!("NR: x{x} y{y} n{n}");
+            }
+
+            println!("FOUND: x: {x} y: {y} freq: {}", x as u64 * N_MAX as u64 + y as u64 );
+            break 'lus;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,5 +229,44 @@ Sensor at x=20, y=1: closest beacon is at x=15, y=3";
         }
 
         assert_eq!(convert.len(), 26);
+    }
+
+    #[test]
+    fn test_example_part2() {
+        let data2 = decode(INPUT);
+
+        const N_MAX: i32 = 20;
+        'lus: for y in 0..N_MAX {
+            let mut x: i32 = -1;
+            'x: loop {
+                x += 1;
+                if x > N_MAX {
+                    continue 'lus;
+                }
+
+                for (n, point) in data2.iter().enumerate() {
+                    let sensor = &point.sensor;
+                    let dis = point.distance;
+
+                    if let Some(r) = sensor.in_range(dis, y) {                    
+                        let xs = sensor.0;
+                        // Not in range
+                        if x.abs_diff(xs) > r  {
+                            println!("ND: x{x} y{y} n{n}");
+                            continue;
+                        }
+                        
+                        x = x.max(xs - 1 + r as i32);
+                        println!("IR: x{x} y{y} n{n}: xs{xs} r{r}");
+                        continue 'x;
+                    }
+
+                    println!("NR: x{x} y{y} n{n}");
+                }
+
+                println!("FOUND: x: {x} y: {y}");
+                break 'lus;
+            }
+        }
     }
 }
