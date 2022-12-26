@@ -69,7 +69,8 @@ fn decode(input: &[u8]) -> Vec<Info> {
 }
 
 fn main() {
-    let input = include_bytes!("../input/input.txt");
+    //let input = include_bytes!("../input/input.txt");
+    let input = include_bytes!("../input/aoc_2022_day15_large/aoc_2022_day15_large-3.txt");
 
     let data = decode(input);
     let data2 = data.clone();
@@ -132,6 +133,7 @@ fn main() {
             }
 
             println!("FOUND: x: {x} y: {y} freq: {}", x as u64 * N_MAX as u64 + y as u64 );
+            println!("FOUND: x: {} y: {} ", x % 31337, y % 31337);
             break 'lus;
         }
     }
