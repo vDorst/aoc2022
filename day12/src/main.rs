@@ -141,36 +141,49 @@ impl Nodes {
         (x, y)
     }
 
-    fn get_neagbots(&self) -> Vec<Idx> {
-        let point_idx = self.current.as_usize();
+    fn get_neighbors(&self, idx: Option<Idx>) -> Vec<Idx> {
+        let point_idx = if let Some(idx) = idx { idx.as_usize() } else {self.current.as_usize() };
         let max_x = self.size.0;
 
         let y = point_idx / max_x;
         let x = point_idx % max_x;
 
-        let mut neabors = Vec::<Idx>::with_capacity(4);
+        let mut neighbors = Vec::<Idx>::with_capacity(4);
 
         if x != 0 {
-            neabors.push(Idx::from(point_idx - 1))
+            neighbors.push(Idx::from(point_idx - 1))
         }
         if x != max_x - 1 {
-            neabors.push(Idx::from(point_idx + 1))
+            neighbors.push(Idx::from(point_idx + 1))
         }
 
         if y != 0 {
-            neabors.push(Idx::from(point_idx - max_x))
+            neighbors.push(Idx::from(point_idx - max_x))
         }
         if y != self.size.1 - 1 {
-            neabors.push(Idx::from(point_idx + max_x))
+            neighbors.push(Idx::from(point_idx + max_x))
         }
 
-        neabors
+        neighbors
     }
 
     fn distances(&mut self) -> Idx {
+        let end_idx = Idx::from(
+            self.points
+                .iter()
+                .enumerate()
+                .find(|(_idx, v)| v.value == b'E')
+                .unwrap()
+                .0,
+        );
+
         'search: loop {
             let mut min: Option<(Dist, Idx)> = None;
 
+
+            if self.get_neighbors(Some(end_idx)).iter().all(|n| self.get(*n).processed ) {
+                break 'search;
+            }
             // let curr_point = self.get(self.current);
 
             // Find unvised minium score value;
@@ -206,7 +219,7 @@ impl Nodes {
 
             let distance_to_next = curr.distance + 1;
 
-            for link in self.get_neagbots() {
+            for link in self.get_neighbors(None) {
                 let next = self.get_mut(link);
 
                 if curr.can_go(next) && distance_to_next < next.distance {
@@ -222,14 +235,7 @@ impl Nodes {
         //     println!("{link:?}");
         // }
 
-        Idx::from(
-            self.points
-                .iter()
-                .enumerate()
-                .find(|(_idx, v)| v.value == b'E')
-                .unwrap()
-                .0,
-        )
+        end_idx
     }
 
     fn print_current(&self) {
@@ -295,8 +301,7 @@ fn main() {
     let end_point = nodes.get(end);
     println!("steps: {}", end_point.distance);
 
-    // nodes.print_map();
-
+    nodes.print_map();
 
     let mut best = Dist::MAX;
     for pos in (0..nodes.points.len()).step_by(nodes.size.0) {
