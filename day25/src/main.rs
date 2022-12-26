@@ -1,25 +1,12 @@
+// #![deny(clippy::pedantic)]
 use std::{
-    fmt::Display,
     io::Read,
     ops::{Add, AddAssign},
 };
 
-const INPUT: &[u8] = b"1=-0-2
-12111
-2=0=
-21
-2=01
-111
-20012
-112
-1=-1=
-1-12
-12
-1=
-122";
-
 type SnafuValue = i64;
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 struct SNAFU(SnafuValue);
 
@@ -45,26 +32,26 @@ impl PartialEq<SnafuValue> for SNAFU {
 
 impl SNAFU {
     fn from(number: &[u8]) -> Self {
-        let mut num = 0;
+        let mut total = 0;
 
-        for (n, v) in number.iter().rev().enumerate() {
-            let number: SnafuValue = match v {
+        for (exp, num) in (0_u32..).zip(number.iter().rev()) {
+            let number: SnafuValue = match num {
                 b'-' => -1,
                 b'=' => -2,
                 o => SnafuValue::from(o - b'0'),
             };
-            let power_of_five = SnafuValue::try_from(SnafuValue::from(5).pow(n as u32)).unwrap();
+            let power_of_five = SnafuValue::from(5).pow(exp);
 
-            println!(
-                "{} * {n}^5 = {number} * {power_of_five} = {} ",
-                char::from(*v),
-                number * power_of_five
-            );
-            num += number * power_of_five;
+            // println!(
+            //     "{} * {exp}^5 = {number} * {power_of_five} = {} ",
+            //     char::from(*v),
+            //     number * power_of_five
+            // );
+            total += number * power_of_five;
         }
 
-        println!("Sum = {num}");
-        Self(num)
+        //println!("Sum = {num}");
+        Self(total)
     }
 
     fn to_snafu(&self) -> String {
@@ -74,26 +61,39 @@ impl SNAFU {
         //println!("to_snafu: {num}");
 
         let abs = num.abs();
-        if abs > 2_i64.pow(52) { panic!("Number to high {num}")}
+        assert!(abs <= 2_i64.pow(52), "Number to high {num}");
 
         let abs_f = abs as f64;
 
         let p_f = abs_f.log10() / 5.0_f64.log10();
 
-        let power_of_five_num = if num.abs_diff(0) <= 2  { 0 } else { p_f.round() as u32};
+        let power_of_five_num = if num.abs_diff(0) <= 2 {
+            0
+        } else {
+            p_f.round() as u32
+        };
 
         //println!("\t--: {num} {abs} P{power_of_five_num} abs:{abs_f} p: {p_f}");
 
-        for pow in (0..=power_of_five_num).rev() {
-            let power_of_five = SnafuValue::try_from(5_i64.pow(pow)).unwrap();
+        for exp in (0..=power_of_five_num).rev() {
+            let power_of_five = SnafuValue::from(5).pow(exp);
 
-            let div = if num.abs_diff(0) <= 2 { num } else { (num as f64 / power_of_five as f64).round() as i64 };
+            let div = if num.abs_diff(0) <= 2 {
+                num
+            } else {
+                (num as f64 / power_of_five as f64).round() as i64
+            };
 
-            if div == 0 && pow != 0 && snafu.is_empty() {  continue; }
+            // Calculation for the start exp is not that great
+            // Sometimes it is to high and it creates leading zeros.
+            // Skip leading zeros
+            if div == 0 && exp != 0 && snafu.is_empty() {
+                continue;
+            }
 
             // print!("{pow}: D{div} * {power_of_five} N{num}");
 
-            snafu.push( match div {
+            snafu.push(match div {
                 0 => '0',
                 1 => '1',
                 2 => '2',
@@ -105,9 +105,6 @@ impl SNAFU {
             num -= power_of_five * div;
 
             //println!(" -> {num}");
-
-
-            if pow == 0 { break }
         }
 
         snafu
@@ -129,14 +126,14 @@ fn main() {
 
     let number = part1(&input);
 
-    println!("number: {} | {}", number.0, number.to_snafu());
+    println!("Part 1: number: {} | SNAFU: {}", number.0, number.to_snafu());
 }
 
 #[cfg(test)]
 
 mod tests {
 
-    use super::{SnafuValue, INPUT, SNAFU};
+    use super::{SnafuValue, SNAFU};
 
     const INPUT_TEST: &[(&[u8], SnafuValue)] = &[
         (b"1=-0-2", 1747),
