@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{fmt::Display, io::Read};
 
 fn part1(input: &[u8]) -> usize {
     let steps = input
@@ -18,6 +18,34 @@ fn part1(input: &[u8]) -> usize {
         .collect::<Vec<Move>>();
 
     let mut sim = Sim::new(2);
+
+    for m in &steps {
+        sim.step(m);
+    }
+
+    // println!("Max: x{} y{} l{}", sim.m_x, sim.m_y, sim.list.len());
+
+    sim.list.len()
+}
+
+fn part2(input: &[u8]) -> usize {
+    let steps = input
+        .split(|v| *v == b'\n')
+        .map(|v| {
+            let step: i8 = core::str::from_utf8(&v[2..]).unwrap().parse().unwrap();
+
+            let m = match v[0] {
+                b'U' => EMove::Up,
+                b'L' => EMove::Left,
+                b'R' => EMove::Right,
+                b'D' => EMove::Down,
+                e => panic!("{e:X?}"),
+            };
+            Move(m, step)
+        })
+        .collect::<Vec<Move>>();
+
+    let mut sim = Sim::new(10);
 
     for m in &steps {
         sim.step(m);
@@ -55,6 +83,9 @@ fn main() {
     println!("Part1: sum: {}", answer);
     assert_eq!(answer, 6087);
     // println!("Part2: sum: {}", part2(&input));
+
+    let answer = part2(&input);
+    println!("Part2: sum: {}", answer);
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -74,6 +105,12 @@ type Pos = i32;
 struct Loc {
     x: Pos,
     y: Pos,
+}
+
+impl Display for Loc {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}x{}", self.x, self.y)
+    }
 }
 
 impl Loc {
@@ -113,10 +150,11 @@ impl Sim {
     }
 
     fn step(&mut self, m: &Move) {
-        let mut m: Move = m.clone();
         for _ in 0..m.1 {
-            let h = {
-                let head = &mut self.rope[0];
+            let mut points = self.rope.iter_mut();
+
+            let mut prev = {
+                let head = points.next().unwrap();
 
                 match m.0 {
                     EMove::Up => {
@@ -135,46 +173,76 @@ impl Sim {
                 head.clone()
             };
 
-            let t = &mut self.rope[1];
-
-            let diff = h.x.abs_diff(t.x) + h.y.abs_diff(t.y);
-            if diff > 2 {
-                *t = h.clone();
-                match &m.0 {
-                    EMove::Up => t.down(),
-                    EMove::Down => t.up(),
-                    EMove::Left => t.right(),
-                    EMove::Right => t.left(),
-                };
-            } else {
-                match h.x - t.x {
-                    -2 => t.left(),
-                    2 => t.right(),
-                    _ => (),
+            for curr in points {
+                let diff = prev.x.abs_diff(curr.x) + prev.y.abs_diff(curr.y);
+                if diff < 2 {
+                    break;
                 }
-                match h.y - t.y {
-                    -2 => t.down(),
-                    2 => t.up(),
-                    _ => (),
-                }
-            }
 
-            if !self.list.iter().any(|v| v == t) {
-                self.list.push(t.clone());
+                if prev.x.abs_diff(curr.x) == 1 && prev.y.abs_diff(curr.y) == 1 {
+                    break;
+                }
+
+                let diff = prev.x - curr.x;
+                if diff < 0 {
+                    curr.left();
+                }
+                if diff > 0 {
+                    curr.right();
+                }
+
+                let diff = prev.y - curr.y;
+                if diff < 0 {
+                    curr.down();
+                }
+                if diff > 0 {
+                    curr.up();
+                }
+
+                prev = curr.clone();
             }
 
             // println!(
             //     "h {}x{}; t {}x{} d{diff} m{m:?} H{:?}",
             //     h.x, h.y, t.x, t.y, h
             // );
+
+            let last = self.rope.last().unwrap();
+            if !self.list.iter().any(|v| v == last) {
+                self.list.push(last.clone());
+            }
         }
     }
 
     fn draw(&self) {
-        for y in 0..5 {
-            for x in 0..6 {
+        for y in 0..10 {
+            for x in 0..10 {
                 if self.list.iter().any(|v| *v == Loc { x, y }) {
                     print!("#");
+                } else {
+                    print!(".");
+                }
+            }
+            println!("");
+        }
+    }
+
+    fn draw_map(&self) {
+        println!("n: 0123456789");
+        for y in (0..9).rev() {
+            print!("{y}: ");
+            for x in 0..10 {
+                if let Some((idx, _v)) = self
+                    .rope
+                    .iter()
+                    .enumerate()
+                    .find(|(_idx, v)| **v == Loc { x, y })
+                {
+                    let c = match idx {
+                        0 => b'H',
+                        e => e as u8 + b'0',
+                    };
+                    print!("{}", char::from(c));
                 } else {
                     print!(".");
                 }
@@ -268,5 +336,28 @@ R 2";
         assert_eq!(sim.rope[0], Loc { x: 5, y: -1 });
 
         assert_eq!(Loc::new(), Loc { x: 0, y: 0 });
+    }
+
+    #[test]
+    fn test_example2() {
+        let mut sim = Sim::new(10);
+
+        assert_eq!(sim.rope[0], Loc { x: 0, y: 0 });
+        sim.step(&Move(EMove::Right, 5));
+        sim.step(&Move(EMove::Up, 8));
+        sim.draw_map();
+
+        assert_eq!(*sim.rope.last().unwrap(), Loc { x: 0, y: 0 });
+
+        sim.step(&Move(EMove::Left, 8));
+        sim.draw_map();
+
+        assert_eq!(*sim.rope.last().unwrap(), Loc { x: 1, y: 3 });
+
+        sim.step(&Move(EMove::Down, 3));
+        sim.step(&Move(EMove::Right, 17));
+        sim.draw_map();
+
+        assert_eq!(*sim.rope.last().unwrap(), Loc { x: 5, y: 5 });
     }
 }
