@@ -1,9 +1,10 @@
+use petgraph::{algo::dijkstra, prelude::DiGraphMap};
+use std::time::Instant;
 use std::{fmt::Display, io::Read, num::NonZeroU8};
 
-type Score = u32;
 type IdxType = u16;
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, PartialOrd, Ord, Hash)]
 struct Idx(IdxType);
 
 impl Display for Idx {
@@ -61,28 +62,20 @@ impl Point {
         if rhs.processed {
             return false;
         }
-        let ret = self.valid_negbor(rhs);
+        let ret = self.valid_neighbor(rhs);
         //print!("- {} vs {}: {ret} -", char::from(self.value), char::from(rhs.value) );
         ret
     }
 
-    fn valid_negbor(&self, rhs: &Point) -> bool {
+    fn valid_neighbor(&self, rhs: &Point) -> bool {
         // next value +1 higher, equel or lower
-        let s = if self.value == b'E' {
-            b'z' + 1
-        } else {
-            self.value
-        };
-        let e = if rhs.value == b'E' {
-            b'z' + 1
-        } else {
-            rhs.value
-        };
-        if e.abs_diff(s) <= 1 { 
+        let s = self.value;
+        let e = rhs.value;
+        if e.abs_diff(s) <= 1 {
             return true;
         }
         if s >= e {
-           return true;
+            return true;
         }
         false
     }
@@ -124,10 +117,10 @@ impl Nodes {
         current_point.value = b'a';
 
         let (end_idx, end_point) = points
-        .iter_mut()
-        .enumerate()
-        .find(|(_idx, v)| v.value == b'E')
-        .unwrap();
+            .iter_mut()
+            .enumerate()
+            .find(|(_idx, v)| v.value == b'E')
+            .unwrap();
 
         end_point.value = b'z';
 
@@ -138,6 +131,25 @@ impl Nodes {
             start: Idx::from(idx),
             end: Idx::from(end_idx),
         }
+    }
+
+    fn create_graph(&self) -> DiGraphMap<(Idx, char), u16> {
+        let mut edges: Vec<((Idx, char), (Idx, char))> = Vec::new();
+
+        for (idx, edge) in self.points.iter().enumerate() {
+            let curr = Idx::from(idx);
+
+            for n in self.get_neighbors_idx(Some(curr)) {
+                let point = self.get(n);
+                if edge.valid_neighbor(point) {
+                    edges.push(((curr, char::from(edge.value)), (n, char::from(point.value))));
+                }
+            }
+        }
+
+        let graph = DiGraphMap::from_edges(&edges);
+
+        graph
     }
 
     fn get(&self, idx: Idx) -> &Point {
@@ -157,8 +169,12 @@ impl Nodes {
         (x, y)
     }
 
-    fn get_neighbors(&self, idx: Option<Idx>) -> Vec<Idx> {
-        let point_idx = if let Some(idx) = idx { idx.as_usize() } else {self.current.as_usize() };
+    fn get_neighbors_idx(&self, idx: Option<Idx>) -> Vec<Idx> {
+        let point_idx = if let Some(idx) = idx {
+            idx.as_usize()
+        } else {
+            self.current.as_usize()
+        };
         let max_x = self.size.0;
 
         let y = point_idx / max_x;
@@ -187,9 +203,11 @@ impl Nodes {
         'search: loop {
             let mut min: Option<(Dist, Idx)> = None;
 
-
-            if self.get_neighbors(Some(self.end)).iter().all(|n| 
-                self.get(*n).processed ) {
+            if self
+                .get_neighbors_idx(Some(self.end))
+                .iter()
+                .all(|n| self.get(*n).processed)
+            {
                 break 'search;
             }
             // let curr_point = self.get(self.current);
@@ -227,7 +245,7 @@ impl Nodes {
 
             let distance_to_next = curr.distance + 1;
 
-            for link in self.get_neighbors(None) {
+            for link in self.get_neighbors_idx(None) {
                 let next = self.get_mut(link);
 
                 if curr.can_go(next) && distance_to_next < next.distance {
@@ -269,9 +287,12 @@ impl Nodes {
                     "\x1b[38;5;40m"
                 };
                 let c = if idx == self.end {
-                     b'E'
+                    b'E'
                 } else if idx == self.start {
-                    b'S' } else { point.value };
+                    b'S'
+                } else {
+                    point.value
+                };
                 print!("{color}{}", char::from(c));
                 idx.next();
             }
@@ -312,17 +333,35 @@ fn main() {
 
     let mut nodes = Nodes::from(&input);
 
+    let start = Instant::now();
     let end = nodes.distances();
     let end_point = nodes.get(end);
-    println!("steps: {}", end_point.distance);
+    let end = start.elapsed();
+
+    println!(
+        "Part1: Steps: {} in {} uS",
+        end_point.distance,
+        end.as_micros()
+    );
+
+    let start = Instant::now();
+    let graph = nodes.create_graph();
+
+    let res = dijkstra(&graph, (nodes.start, 'a'), Some((nodes.end, 'z')), |_| 1);
+
+    let answer = res[&(nodes.end, 'z')];
+
+    let end = start.elapsed();
+
+    println!("Part1: Steps: {} in {} uS", answer, end.as_micros());
 
     nodes.print_map();
 
+    let start = Instant::now();
     let mut best = Dist::MAX;
     for pos in (0..nodes.points.len()).step_by(nodes.size.0) {
-
         let mut nodes = Nodes::from(&input);
-        
+
         nodes.get_mut(nodes.current).distance = Dist::MAX;
         nodes.current = Idx::from(pos);
 
@@ -333,18 +372,37 @@ fn main() {
         let end_point = nodes.get(end);
         println!("steps: {}", end_point.distance);
 
-        if end_point.distance < best { best = end_point.distance };
+        if end_point.distance < best {
+            best = end_point.distance
+        };
     }
+    let end = start.elapsed();
+    println!("Part2: Steps: {} in {} uS", best, end.as_micros());
 
-    println!("Best: {}", best);
+    let start = Instant::now();
+    let mut best = Dist::MAX;
+    for pos in (0..nodes.points.len()).step_by(nodes.size.0) {
+        let res = dijkstra(&graph, (Idx::from(pos), 'a'), Some((nodes.end, 'z')), |_| 1);
+        let answer = res[&(nodes.end, 'z')];
+        println!("steps: {}", answer);
 
+        if answer < best {
+            best = answer
+        };
+    }
+    let end = start.elapsed();
+    println!("Part2: Steps: {} in {} uS", best, end.as_micros());
 }
 
 #[cfg(test)]
 
 mod tests {
 
+    use std::io::Write;
+
     use super::{Idx, Nodes, INPUT};
+    use petgraph::algo::dijkstra;
+    use petgraph::dot::{Config, Dot};
 
     #[test]
     fn test_distance() {
@@ -372,12 +430,32 @@ mod tests {
 
         println!("");
 
-
         let end_point = nodes.get(end);
 
         nodes.print_map();
 
         assert_eq!(end_point.distance, 31);
+    }
 
+    #[test]
+    fn test_graph() {
+        let mut nodes = Nodes::from(INPUT);
+        assert_eq!(nodes.size, (8, 5));
+
+        let graph = nodes.create_graph();
+
+        let dot = Dot::with_config(&graph, &[Config::EdgeNoLabel]);
+        // println!(
+        //     "{:?}",
+        //     Dot::with_config(&graph, &[Config::EdgeNoLabel])
+        // );
+        let mut file = std::fs::File::create("graph.dot").unwrap();
+        file.write_all(format!("{:?}", dot).as_bytes()).unwrap();
+
+        let res = dijkstra(&graph, (nodes.start, 'a'), Some((nodes.end, 'z')), |_| 1);
+
+        let answer = res[&(nodes.end, 'z')];
+
+        assert_eq!(answer, 31);
     }
 }
