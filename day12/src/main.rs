@@ -20,6 +20,10 @@ impl Idx {
     fn from(idx: usize) -> Self {
         Idx(IdxType::try_from(idx).expect("Index higher u8::max {idx}"))
     }
+
+    fn next(&mut self) {
+        self.0 += 1;
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -89,6 +93,8 @@ struct Nodes {
     points: Vec<Point>,
     size: (usize, usize),
     current: Idx,
+    start: Idx,
+    end: Idx,
 }
 
 impl Nodes {
@@ -117,10 +123,20 @@ impl Nodes {
         current_point.distance = 0;
         current_point.value = b'a';
 
+        let (end_idx, end_point) = points
+        .iter_mut()
+        .enumerate()
+        .find(|(_idx, v)| v.value == b'E')
+        .unwrap();
+
+        end_point.value = b'z';
+
         Self {
             size: (points.len() / y, y),
             points,
             current: Idx::from(idx),
+            start: Idx::from(idx),
+            end: Idx::from(end_idx),
         }
     }
 
@@ -168,20 +184,12 @@ impl Nodes {
     }
 
     fn distances(&mut self) -> Idx {
-        let end_idx = Idx::from(
-            self.points
-                .iter()
-                .enumerate()
-                .find(|(_idx, v)| v.value == b'E')
-                .unwrap()
-                .0,
-        );
-
         'search: loop {
             let mut min: Option<(Dist, Idx)> = None;
 
 
-            if self.get_neighbors(Some(end_idx)).iter().all(|n| self.get(*n).processed ) {
+            if self.get_neighbors(Some(self.end)).iter().all(|n| 
+                self.get(*n).processed ) {
                 break 'search;
             }
             // let curr_point = self.get(self.current);
@@ -235,7 +243,7 @@ impl Nodes {
         //     println!("{link:?}");
         // }
 
-        end_idx
+        self.end
     }
 
     fn print_current(&self) {
@@ -249,6 +257,8 @@ impl Nodes {
     }
 
     fn print_map(&self) {
+        let mut idx = Idx(0);
+
         for points in self.points.chunks_exact(self.size.0) {
             for point in points {
                 let color = if point.processed {
@@ -258,7 +268,12 @@ impl Nodes {
                 } else {
                     "\x1b[38;5;40m"
                 };
-                print!("{color}{}", char::from(point.value));
+                let c = if idx == self.end {
+                     b'E'
+                } else if idx == self.start {
+                    b'S' } else { point.value };
+                print!("{color}{}", char::from(c));
+                idx.next();
             }
             println!("");
         }
@@ -332,16 +347,8 @@ mod tests {
     use super::{Idx, Nodes, INPUT};
 
     #[test]
-    fn test_split() {
-        let v: Vec<&str> = "A.B".split_terminator('.').collect();
-
-        assert_eq!(v, ["A", "B"]);
-    }
-
-    #[test]
     fn test_distance() {
         let mut nodes = Nodes::from(INPUT);
-
         assert_eq!(nodes.size, (8, 5));
 
         let end = nodes.distances();
@@ -352,7 +359,7 @@ mod tests {
 
         loop {
             let node = nodes.get(p);
-            let (x, y) = nodes.pos(p);
+            //let (x, y) = nodes.pos(p);
 
             // print!("{x}x{y} -> ");
 
@@ -360,7 +367,6 @@ mod tests {
                 break;
             }
 
-            
             p = node.prev;
         }
 
@@ -368,8 +374,10 @@ mod tests {
 
 
         let end_point = nodes.get(end);
-        assert_eq!(end_point.distance, 31);
 
         nodes.print_map();
+
+        assert_eq!(end_point.distance, 31);
+
     }
 }
