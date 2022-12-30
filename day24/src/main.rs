@@ -1,14 +1,27 @@
-use std::time::Instant;
-use std::io::Read;
-
+use ahash::AHashSet;
 use itertools::Itertools;
 use num::Integer;
-use petgraph::algo::dijkstra;
-use petgraph::prelude::{DiGraphMap, GraphMap};
-use petgraph::Directed;
+use petgraph::{
+    prelude::{DiGraphMap, GraphMap},
+    visit::{GraphRef, IntoNeighbors, NodeIndexable, VisitMap, Visitable},
+    Directed,
+};
+use std::{collections::VecDeque, io::Read, time::Instant};
 
-type Node = (Loc, u16);
 type Minutes = u16;
+
+#[derive(Debug, Clone, Copy, Ord, PartialEq, PartialOrd, Eq, Hash)]
+struct Node(Loc, Minutes);
+
+impl Location for Node {
+    fn x(&self) -> u8 {
+        self.0.x()
+    }
+
+    fn y(&self) -> u8 {
+        self.0.y()
+    }
+}
 
 fn part1(graph: &GraphMap<Node, Minutes, Directed>, sim: &Sim) -> Minutes {
     let start_begin = Instant::now();
@@ -18,27 +31,27 @@ fn part1(graph: &GraphMap<Node, Minutes, Directed>, sim: &Sim) -> Minutes {
         y: sim.size.y - 1,
     };
 
-    let start_point = (Loc { x: 1, y: 0 }, 0_u16);
+    let start_point = Node(Loc { x: 1, y: 0 }, 0_u16);
 
-    let ans = find_path(&graph, start_point, end_point);
+    let ans = find_path(graph, start_point, end_point);
 
     println!("Total: {ans:?} in {} mS", start_begin.elapsed().as_millis());
 
     ans.unwrap().1
 }
 
-fn part2(graph: &GraphMap<Node, Minutes, Directed>, sim: &Sim) -> Vec<Minutes> {
+fn part2(graph: &GraphMap<Node, Minutes, Directed>, map_data: &Sim) -> Vec<Minutes> {
     let mut total = Vec::<Minutes>::with_capacity(3);
     let start_begin = Instant::now();
 
     let end_point = Loc {
-        x: sim.size.x - 2,
-        y: sim.size.y - 1,
+        x: map_data.size.x - 2,
+        y: map_data.size.y - 1,
     };
 
-    let start_point = (Loc { x: 1, y: 0 }, 0_u16);
+    let start_point = Node(Loc { x: 1, y: 0 }, 0_u16);
 
-    let ans = find_path(&graph, start_point, end_point);
+    let ans = find_path(graph, start_point, end_point);
 
     total.push(ans.unwrap().1);
 
@@ -47,7 +60,7 @@ fn part2(graph: &GraphMap<Node, Minutes, Directed>, sim: &Sim) -> Vec<Minutes> {
 
     let end_point = Loc { x: 1, y: 0 };
 
-    let ans = find_path(&graph, start_point, end_point);
+    let ans = find_path(graph, start_point, end_point);
 
     total.push(ans.unwrap().1);
 
@@ -55,16 +68,19 @@ fn part2(graph: &GraphMap<Node, Minutes, Directed>, sim: &Sim) -> Vec<Minutes> {
     let start_point: Node = ans.unwrap().0;
 
     let end_point = Loc {
-        x: sim.size.x - 2,
-        y: sim.size.y - 1,
+        x: map_data.size.x - 2,
+        y: map_data.size.y - 1,
     };
 
-    let ans = find_path(&graph, start_point, end_point);
+    let ans = find_path(graph, start_point, end_point);
 
     total.push(ans.unwrap().1);
 
     let sum: u16 = total.iter().sum();
-    println!("Total: {total:?} = {sum} in {} mS", start_begin.elapsed().as_millis());
+    println!(
+        "Total: {total:?} = {sum} in {} mS",
+        start_begin.elapsed().as_millis()
+    );
 
     total
 }
@@ -76,35 +92,28 @@ fn main() {
     let mut input = Vec::with_capacity(1_000_000);
     f.read_to_end(&mut input).unwrap();
 
-    let mut sim = Sim::new(&input);
+    let mut map_data = Sim::new(&input);
 
     let end = start_begin.elapsed();
     println!("Loaded map: {} uS", end.as_micros());
 
     let start = Instant::now();
-    let edges = sim.sim();
+    let graph = map_data.sim();
     let end = start.elapsed();
     println!("generate edges: {} uS", end.as_micros());
 
-    let start = Instant::now();
-    let graph: GraphMap<Node, Minutes, Directed> = DiGraphMap::from_edges(&edges);
-    let end = start.elapsed();
-    println!("create graph: {} uS", end.as_micros());
+    // let start = Instant::now();
+    // let graph: GraphMap<Node, Minutes, Directed> = DiGraphMap::from_edges(&edges);
+    // let end = start.elapsed();
+    // println!("create graph: {} uS", end.as_micros());
 
-    let answer = part1(&graph, &sim);
-    println!("Part1: {}", answer);
+    let answer = part1(&graph, &map_data);
+    println!("Part1: {answer}");
 
-    let answer = part2(&graph, &sim);
+    let answer = part2(&graph, &map_data);
     let sum: u16 = answer.iter().sum();
     println!("Part2: sum: {answer:?} = {sum}");
 }
-
-const INPUT: &[u8] = b"#.######
-#>>.<^<#
-#.<..<<#
-#>v.><>#
-#<^v^^>#
-######.#";
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Ord, PartialOrd, Hash)]
 struct Loc {
@@ -112,7 +121,17 @@ struct Loc {
     y: u8,
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+impl Location for Loc {
+    fn x(&self) -> u8 {
+        self.x
+    }
+
+    fn y(&self) -> u8 {
+        self.y
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 enum Direction {
     Up,
     Down,
@@ -121,42 +140,29 @@ enum Direction {
     Wall,
 }
 
-impl Direction {
-    fn as_char(&self) -> char {
-        match self {
-            Direction::Up => '^',
-            Direction::Down => 'v',
-            Direction::Left => '<',
-            Direction::Right => '>',
-            Direction::Wall => '#',
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct Blizzard {
     pos: Loc,
     dir: Direction,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 struct Sim {
     blizzards: Vec<Blizzard>,
-    pos: Loc,
     size: Loc,
-    minutes: Minutes,
 }
 
 impl Sim {
     fn new(input: &[u8]) -> Self {
         let mut sim = Sim {
-            pos: Loc { x: 1, y: 0 },
-            blizzards: Vec::with_capacity(37 * 103),
+            blizzards: Vec::with_capacity(input.len()),
             size: Loc { x: 0, y: 0 },
-            minutes: 0,
         };
 
+        let mut size_y = 0;
+        let mut size_x = 0;
         for (y, line) in (0_u8..).zip(input.split(|&v| v == b'\n')) {
+            size_x = line.len();
             for (x, c) in (0_u8..).zip(line) {
                 let dir: Direction = match c {
                     b'.' => continue,
@@ -172,12 +178,13 @@ impl Sim {
                     dir,
                 });
             }
+            size_y += 1;
         }
 
-        let mut loc = sim.blizzards.last().unwrap().pos;
-        loc.x += 1;
-        loc.y += 1;
-        sim.size = loc;
+        sim.size = Loc {
+            x: u8::try_from(size_x).unwrap(),
+            y: size_y,
+        };
 
         println!(
             "blizzards len {} size = {}",
@@ -189,30 +196,30 @@ impl Sim {
     }
 
     fn blizzards_next(&mut self) {
-        for blis in self.blizzards.iter_mut() {
+        for blis in &mut self.blizzards {
             match blis.dir {
                 Direction::Up => {
                     blis.pos.y -= 1;
                     if blis.pos.y == 0 {
-                        blis.pos.y = self.size.y - 2
+                        blis.pos.y = self.size.y - 2;
                     }
                 }
                 Direction::Down => {
                     blis.pos.y += 1;
                     if blis.pos.y == self.size.y - 1 {
-                        blis.pos.y = 1
+                        blis.pos.y = 1;
                     }
                 }
                 Direction::Left => {
                     blis.pos.x -= 1;
                     if blis.pos.x == 0 {
-                        blis.pos.x = self.size.x - 2
+                        blis.pos.x = self.size.x - 2;
                     }
                 }
                 Direction::Right => {
                     blis.pos.x += 1;
                     if blis.pos.x == self.size.x - 1 {
-                        blis.pos.x = 1
+                        blis.pos.x = 1;
                     }
                 }
                 Direction::Wall => (),
@@ -220,31 +227,29 @@ impl Sim {
         }
     }
 
-    fn get_empty_spots(&self) -> Vec<Loc> {
-        let empty_spots: Vec<Loc> = (0..(self.size.y))
-            .cartesian_product(0..(self.size.x))
-            .flat_map(|(y, x)| {
-                let search_spot = Loc { x, y };
-                if !self.blizzards.iter().any(|b| b.pos == search_spot) {
-                    Some(search_spot)
-                } else {
-                    None
-                }
-            })
+    fn get_empty_spots(&self) -> AHashSet<Loc> {
+        let mut empty_spots: AHashSet<Loc> = (0..self.size.y)
+            .cartesian_product(1..(self.size.x - 1))
+            .map(|(y, x)| Loc { x, y })
             .collect();
+
+        for blis in &self.blizzards {
+            empty_spots.remove(&blis.pos);
+        }
         // dbg!(empty_spots.len());
         empty_spots
     }
 
-    fn sim(&mut self) -> Vec<((Loc, Minutes), (Loc, Minutes))> {
+    fn sim(&mut self) -> GraphMap<Node, u16, Directed> {
         let mut field_size = self.size;
         field_size.x -= 2;
         field_size.y -= 2;
-        let step_cycle_number = (field_size.x as Minutes).lcm(&(field_size.y as Minutes));
+        let step_cycle_number = (Minutes::try_from(field_size.x).unwrap()).lcm(&(Minutes::try_from(field_size.y).unwrap()));
 
-        dbg!(step_cycle_number, field_size);
+        // dbg!(step_cycle_number, field_size);
 
-        let mut edges: Vec<((Loc, Minutes), (Loc, Minutes))> = Vec::with_capacity(1000);
+        let mut graph: GraphMap<Node, u16, Directed> =
+            DiGraphMap::with_capacity(900_000, 2_000_000);
 
         let mut empty_spots = self.get_empty_spots();
 
@@ -252,93 +257,86 @@ impl Sim {
             self.blizzards_next();
             let current_empty_spots = self.get_empty_spots();
 
-            let min = if minutes + 1 == step_cycle_number {
-                0
-            } else {
-                minutes + 1
-            };
-
-            // if current_empty_spots.iter().any(|&b| b == end_node) {
-            //     // println!("Insert endnode");
-            //     edges.push(((end_node, min), end));
-            // }
+            let min = (minutes + 1) % step_cycle_number;
 
             for prev_spot in &empty_spots {
-                for search_dir in 0..5 {
+                for search_dir in [
+                    Direction::Up,
+                    Direction::Down,
+                    Direction::Left,
+                    Direction::Right,
+                    Direction::Wall,
+                ] {
                     let mut search_spot = *prev_spot;
 
                     match search_dir {
-                        0 => {
-                            if search_spot.x == self.size.x - 1 {
+                        Direction::Right => {
+                            if search_spot.x >= self.size.x - 2 {
                                 continue;
                             }
-                            search_spot.x += 1
+                            search_spot.x += 1;
                         }
-                        1 => {
+                        Direction::Down => {
                             if search_spot.y == self.size.y - 1 {
                                 continue;
                             };
-                            search_spot.y += 1
+                            search_spot.y += 1;
                         }
-                        2 => {
+                        Direction::Up => {
                             if search_spot.y == 0 {
                                 continue;
                             };
-                            search_spot.y -= 1
+                            search_spot.y -= 1;
                         }
-                        3 => {
-                            if search_spot.x == 0 {
+                        Direction::Left => {
+                            if search_spot.x <= 1 {
                                 continue;
                             };
-                            search_spot.x -= 1
+                            search_spot.x -= 1;
                         }
-                        _ => (),
+                        Direction::Wall => (),
                     }
 
-                    if current_empty_spots.iter().any(|&b| b == search_spot) {
-                        let spot = (search_spot, min);
-                        let prev = (prev_spot.clone(), minutes);
+                    if current_empty_spots.contains(&search_spot) {
+                        let spot = Node(search_spot, min);
+                        let prev = Node(*prev_spot, minutes);
 
-                        edges.push((prev, spot));
-
-                        // if spot.0 == end_node {
-                        //     edges.push(((end_node, min), end));
-                        // }
+                        graph.add_edge(prev, spot, 1);
                     }
                 }
             }
             empty_spots = current_empty_spots;
         }
-        edges
-    }
+        println!(
+            "Graph: Nodes {} Egdes {}",
+            graph.node_count(),
+            graph.edge_count()
+        );
 
-    fn draw(&self) {
-        for y in 0..self.size.y {
-            for x in 0..self.size.x {
-                let loc = Loc { x, y };
-                let blis: Vec<Direction> = self
-                    .blizzards
-                    .iter()
-                    .filter(|b| b.pos == loc)
-                    .map(|b| b.dir)
-                    .collect();
+        // let mut remove_node = Vec::<Node>::with_capacity(10000);
 
-                let c = match blis.len() {
-                    0 => {
-                        if self.pos == loc {
-                            'E'
-                        } else {
-                            '.'
-                        }
-                    }
-                    1 => blis[0].as_char(),
-                    e => char::from(b'0' + e as u8),
-                };
+        // loop {
+        //     remove_node.clear();
 
-                print!("{c}");
-            }
-            println!();
-        }
+        //     for node in graph.nodes() {
+        //         if graph.neighbors_directed(node, petgraph::Direction::Incoming).next().is_none() {
+        //             remove_node.push(node);
+        //         }
+        //         if graph.neighbors_directed(node, petgraph::Direction::Outgoing).next().is_none() {
+        //             remove_node.push(node);
+        //         }
+        //     }
+        //     if remove_node.is_empty() { break }
+
+        //     for &node in &remove_node {
+        //         graph.remove_node(node);
+        //     }
+        // }
+
+        // println!("Graph: Nodes {} Egdes {}", graph.node_count(), graph.edge_count());
+        // graph.nodes()
+
+        graph
     }
 }
 
@@ -348,32 +346,68 @@ fn find_path(
     end_point: Loc,
 ) -> Option<(Node, u16)> {
     let start_time_begin = Instant::now();
-    let ret = dijkstra(&graph, start_point, None, |_| 1_u16);
-    let end_pathfind = start_time_begin.elapsed();
 
-    let start_time = Instant::now();
-    let ans = ret
-        .iter()
-        .filter(|(loc, _v)| loc.0 == end_point)
-        .min_by_key(|(_, n)| *n);
+    let ans = bfs_with_goal(graph, start_point, &end_point);
 
     println!(
-        "ans : {ans:?} in pathfind: {} mS, min: {} uS, total {} mS",
-        end_pathfind.as_millis(),
-        start_time.elapsed().as_micros(),
-        start_time_begin.elapsed().as_millis(),
+        "ans : {ans:?} in pathfind: {} uS",
+        start_time_begin.elapsed().as_micros(),
     );
 
-    if let Some(ans) = ans {
-        Some((*ans.0, *ans.1))
-    } else {
-        None
+    ans
+}
+
+pub trait Location {
+    fn x(&self) -> u8;
+    fn y(&self) -> u8;
+}
+
+pub fn bfs_with_goal<G, N, VM, B>(graph: G, start: N, end: &B) -> Option<(N, Minutes)>
+where
+    N: Copy + PartialEq + Location,
+    B: Location,
+    VM: VisitMap<N>,
+    G: GraphRef + Visitable<NodeId = N, Map = VM> + NodeIndexable + IntoNeighbors<NodeId = N>,
+{
+    let mut vm = graph.visit_map();
+    vm.visit(start);
+
+    let mut dist = vec![Minutes::MAX; graph.node_bound()];
+    dist[graph.to_index(start)] = 0;
+
+    let mut queue: VecDeque<G::NodeId> = VecDeque::new();
+    queue.push_back(start);
+
+    while let Some(current) = queue.pop_front() {
+        for v in graph.neighbors(current) {
+            if vm.visit(v) {
+                let node: N = v;
+                let dis = dist[graph.to_index(current)] + 1;
+                if node.x() == end.x() && node.y() == end.y() {
+                    return Some((node, dis));
+                }
+                queue.push_back(v);
+                dist[graph.to_index(v)] = dis;
+            }
+        }
     }
+
+    None
 }
 
 #[cfg(test)]
 mod tests {
+    use petgraph::dot::{Config, Dot};
+    use std::io::Write;
+
     use super::*;
+
+    const INPUT: &[u8] = b"#.######
+#>>.<^<#
+#.<..<<#
+#>v.><>#
+#<^v^^>#
+######.#";
 
     #[test]
     fn test_example1() {
@@ -386,34 +420,41 @@ mod tests {
         println!("Loaded map: {} uS", end.as_micros());
 
         let start = Instant::now();
-        let edges = sim.sim();
-        let end = start.elapsed();
-        println!("generate edges: {} uS", end.as_micros());
+        let graph = sim.sim();
+        println!("generate edges: {} uS", start.elapsed().as_micros());
 
-        let start = Instant::now();
-        let graph: GraphMap<Node, u16, Directed> = DiGraphMap::from_edges(&edges);
-        let end = start.elapsed();
-        println!("create graph: {} uS", end.as_micros());
+        // let start = Instant::now();
+        // let graph: GraphMap<Node, u16, Directed> = DiGraphMap::from_edges(&edges);
+        // println!("create graph: {} uS", start.elapsed().as_micros());
 
-        // let mut f = std::fs::File::create("graph.dot").unwrap();
-        // f.write_all(format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel])).as_bytes())
-        //     .unwrap();
+        let mut f = std::fs::File::create("graph.dot").unwrap();
+        f.write_all(format!("{:?}", Dot::with_config(&graph, &[Config::EdgeNoLabel])).as_bytes())
+            .unwrap();
 
         let end_point = Loc {
             x: sim.size.x - 2,
             y: sim.size.y - 1,
         };
 
-        let start_point = (Loc { x: 1, y: 0 }, 0_u16);
+        let start_point = Node(Loc { x: 1, y: 0 }, 0_u16);
 
         let ans = find_path(&graph, start_point, end_point);
 
-        assert_eq!(ans, Some(((end_point, 6), 18)));
+        assert_eq!(ans, Some((Node(end_point, 6), 18)));
 
         total += ans.unwrap().1;
 
+        let start = Instant::now();
+        let ans_bfs = bfs_with_goal(&graph, start_point, &end_point);
+        println!(
+            "Bfs search: {ans_bfs:?} in {} uS",
+            start.elapsed().as_micros()
+        );
+
+        assert_eq!(ans_bfs, Some((Node(end_point, 6), 18)));
+
         // Go Back
-        let start_point: Node = ans.unwrap().0;
+        let start_point = ans.unwrap().0;
 
         let end_point = Loc { x: 1, y: 0 };
 
@@ -423,7 +464,7 @@ mod tests {
             "ans 2 : {ans:?} in {} mS",
             start_begin.elapsed().as_millis()
         );
-        assert_eq!(ans, Some(((end_point, 5), 23)));
+        assert_eq!(ans, Some((Node(end_point, 5), 23)));
 
         total += ans.unwrap().1;
 
@@ -438,7 +479,7 @@ mod tests {
         let ans = find_path(&graph, start_point, end_point);
 
         println!("ans 3 : {ans:?} in {} mS", end.as_micros());
-        assert_eq!(ans, Some(((end_point, 6), 13)));
+        assert_eq!(ans, Some((Node(end_point, 6), 13)));
 
         total += ans.unwrap().1;
 
