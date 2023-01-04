@@ -176,12 +176,20 @@ fn main() {
     let mut input = String::with_capacity(4096);
     f.read_to_string(&mut input).unwrap();
 
+    let start = Instant::now();
     let total = part1(&input);
-    let end = start_begin.elapsed();
+    let end = start.elapsed();
     println!("Part1: {} in {} uS", total, end.as_micros());
+
+    let start = Instant::now();
+    let total = part2(&input);
+    let end = start.elapsed();
+    println!("Part2: {:?} = {} in {} uS", total, total.iter().sum::<u32>(), end.as_micros());
+
+    println!("Total in {} uS", start_begin.elapsed().as_micros());
 }
 
-fn rec(data: &Vec<Search>, values_open: u16, prev: NodeIndex, minutes: u32) -> Score {
+fn rec(data: &Vec<Search>, values_open: u16, prev: NodeIndex, minutes: u32) -> (Score, u16) {
     let prev_dis = data.get(prev.index()).unwrap();
 
     let mut score: Score = 0;
@@ -198,12 +206,46 @@ fn rec(data: &Vec<Search>, values_open: u16, prev: NodeIndex, minutes: u32) -> S
                 values_open | bit,
                                 NodeIndex::from(bit_idx as u32),
                 rem_minutes,
-            ) + (node.flow as u32 * rem_minutes),
+            ).0 + (node.flow as u32 * rem_minutes),
         );
     }
 
-    score
+    (score, values_open)
 }
+
+fn rec2(data: &Vec<Search>, values_open: u16, prev: [NodeIndex;2], minutes: [u32;2]) -> (Score, u16) {
+    let player = if minutes[0] >= minutes[1] {
+        0
+    } else {
+        1
+    };
+    let prev_dis = data.get(prev[player].index()).unwrap();
+
+    let mut score: Score = 0;
+    for (bit_idx, node) in data.iter().enumerate() {
+        let bit = 1 << bit_idx;
+        if values_open & bit != 0 {
+            continue;
+        }
+        let distance = *prev_dis.distance.get(&node.node).unwrap();
+        let Some(rem_minutes) = minutes[player].checked_sub(distance + 1) else { continue;};
+        let mut ni = prev;
+        ni[player] = NodeIndex::from(bit_idx as u32);
+        let mut rm = minutes;
+        rm[player] = rem_minutes;
+        score = score.max(
+            rec2(
+                data,
+                values_open | bit,
+                ni,
+                rm,
+            ).0 + (node.flow as u32 * rem_minutes),
+        );
+    }
+
+    (score, values_open)
+}
+
 
 fn part1(input: &str) -> Score {
     let graph = Day16::from(input);
@@ -226,7 +268,39 @@ fn part1(input: &str) -> Score {
 
     println!("combi {}, {}", s.len(), factorial(s.len() - 1));
 
-    rec(&s, 0, NodeIndex::from(s.iter().position(|n| n.node == start_idx).unwrap() as u32), 30)
+    rec(&s, 0, NodeIndex::from(s.iter().position(|n| n.node == start_idx).unwrap() as u32), 30).0
+}
+
+fn part2(input: &str) -> Vec<Score> {
+    let graph = Day16::from(input);
+    // let mut f = std::fs::File::create("graph.dot").unwrap();
+    // f.write_all(format!("{:?}", Dot::with_config(&graph.0, &[])).as_bytes())
+    //     .unwrap();
+
+    let start_idx = NodeIndex::from(graph.0.node_weights().position(|n| n.0 == "AA").unwrap() as u32);
+
+    let s: Vec<Search> = graph
+        .0
+        .node_indices()
+        .filter(|n| *n == start_idx || graph.0[*n].1 > 0)
+        .map(|n| Search {
+            node: n,
+            distance: dijkstra(&graph.0, n, None, |_| 1),
+            flow: graph.0[n].1 as u8,
+        })
+        .collect();
+
+    println!("combi {}, {}", s.len(), factorial(s.len() - 1));
+
+    let mut total = Vec::<Score>::with_capacity(2);
+
+    let si = NodeIndex::from(s.iter().position(|n| n.node == start_idx).unwrap() as u32);
+
+    let (score, valve) = rec2(&s, 0, [si;2 ], [26; 2]);
+    total.push(score);
+
+    
+    total
 }
 
 fn factorial(n: usize) -> usize {
@@ -278,5 +352,14 @@ Valve JJ has flow rate=21; tunnel leads to valve II";
         println!("Score: {score}");
 
         assert_eq!(score, 1651);
+    }
+
+    #[test]
+    fn score2() {
+        let score = part2(INPUT);
+
+        println!("Score: {score:?} {}", score.iter().sum::<Score>());
+
+        assert_eq!(score[0], 1707);
     }
 }
